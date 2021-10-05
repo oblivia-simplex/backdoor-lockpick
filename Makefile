@@ -1,7 +1,7 @@
 export LD_LIBRARY_PATH=$(PWD)/opt/lib
-LDFLAGS=-L./opt/lib opt/lib/libcrypto.a opt/lib/libssl.a -ldl -static
+LDFLAGS=-L./opt/lib opt/lib/libcrypto.a opt/lib/libssl.a -ldl
 CFLAGS=-g -I./opt/include -O0
-CC=clang
+CC=gcc
 OUT=lockpick
 
 $(OUT): lockpick.c
