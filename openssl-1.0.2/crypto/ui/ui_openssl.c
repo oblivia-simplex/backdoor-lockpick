@@ -116,6 +116,10 @@
  * [including the GNU Public Licence.]
  */
 
+#define OPENSSL_NO_TTY 1
+
+#ifndef OPENSSL_NO_TTY
+
 #include <openssl/e_os2.h>
 
 /*
@@ -233,7 +237,7 @@
 #endif
 
 #ifdef TERMIO
-# include <termio.h>
+# include <termios.h>
 # define TTY_STRUCT             struct termio
 # define TTY_FLAGS              c_lflag
 # define TTY_get(tty,data)      ioctl(tty,TCGETA,data)
@@ -720,4 +724,6 @@ static int noecho_fgets(char *buf, int size, FILE *tty)
 # endif
     return (strlen(buf));
 }
+#endif
+
 #endif

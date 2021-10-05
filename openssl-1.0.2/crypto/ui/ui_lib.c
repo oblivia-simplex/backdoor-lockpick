@@ -63,6 +63,14 @@
 #include <openssl/buffer.h>
 #include <openssl/ui.h>
 #include <openssl/err.h>
+
+#define OPENSSL_NO_TTY 1
+
+#ifdef OPENSSL_NO_TTY
+#include "ui_dummy.c"
+#else
+
+
 #include "ui_locl.h"
 
 IMPLEMENT_STACK_OF(UI_STRING_ST)
@@ -867,4 +875,6 @@ int UI_set_result(UI *ui, UI_STRING *uis, const char *result)
         break;
     }
     return 0;
+
 }
+#endif

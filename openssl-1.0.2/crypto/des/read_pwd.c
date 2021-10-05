@@ -153,7 +153,7 @@
 #endif
 
 #ifdef TERMIO
-# include <termio.h>
+# include <termios.h>
 # define TTY_STRUCT              struct termio
 # define TTY_FLAGS               c_lflag
 # define TTY_get(tty,data)       ioctl(tty,TCGETA,data)
