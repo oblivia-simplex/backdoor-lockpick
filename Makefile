@@ -1,5 +1,5 @@
 export LD_LIBRARY_PATH=$(PWD)/opt/lib
-LDFLAGS=-L./opt/lib opt/lib/libcrypto.a opt/lib/libssl.a -ldl
+LDFLAGS=-L./opt/lib opt/lib/libcrypto.a opt/lib/libssl.a -ldl -static
 CFLAGS=-g -I./opt/include -O0
 CC=gcc
 OUT=lockpick
@@ -12,3 +12,6 @@ test: $(OUT)
 
 run: $(OUT)
 	./$(OUT) 192.168.98.1
+
+clean: 
+	rm -f lockpick
