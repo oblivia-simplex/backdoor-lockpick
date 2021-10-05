@@ -1,7 +1,7 @@
 SSLeay 0.7.3 30-Apr-1997
 built on Mon May 12 04:13:55 EST 1997
 options:bn(64,32) md2(char) rc4(idx,int) des(ptr,risc1,16,long) idea(int) blowfish(ptr2)
-C flags:gcc -DL_ENDIAN -DTERMIO -O3 -fomit-frame-pointer -m486 -Wall -Wuninitialized
+C flags:gcc -DL_ENDIAN -DTERMIOS -O3 -fomit-frame-pointer -m486 -Wall -Wuninitialized
 The 'numbers' are in 1000s of bytes per second processed.
 type              8 bytes     64 bytes    256 bytes   1024 bytes   8192 bytes
 md2                72.95k      202.77k      274.01k      300.37k      309.23k

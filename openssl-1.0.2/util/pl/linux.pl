@@ -42,7 +42,7 @@ if (!$no_asm)
 	$cflags.=" -DBN_ASM -DMD5_ASM -DSHA1_ASM -DOPENSSL_BN_ASM_PART_WORDS";
 	}
 
-$cflags.=" -DTERMIO -DL_ENDIAN -m486 -Wall";
+$cflags.=" -DTERMIOS -DL_ENDIAN -m486 -Wall";
 
 if ($shlib)
 	{

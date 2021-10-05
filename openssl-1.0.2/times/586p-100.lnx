@@ -4,7 +4,7 @@ This is the pentium specific version of gcc
 SSLeay 0.6.4 20-Aug-1996
 built on Thu Aug 22 08:27:58 EST 1996
 options:bn(64,32) md2(char) rc4(idx,int) des(idx,long) idea(int)
-C flags:gcc -DL_ENDIAN -DTERMIO -O6 -fomit-frame-pointer -mpentium -Wall
+C flags:gcc -DL_ENDIAN -DTERMIOS -O6 -fomit-frame-pointer -mpentium -Wall
 The 'numbers' are in 1000s of bytes per second processed.
 type           8 bytes     64 bytes    256 bytes   1024 bytes   8192 bytes
 md2             74.90k      208.43k      282.11k      309.59k      318.43k

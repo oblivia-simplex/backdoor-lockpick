@@ -1,4 +1,4 @@
-prefix=/home/lucca/Tenable/Routers/Phicomm/Tools/chosen_plaintext/opt
+prefix=/home/lucca/Tenable/Routers/Phicomm/Tools/backdoor-lockpick/opt
 exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 includedir=${prefix}/include

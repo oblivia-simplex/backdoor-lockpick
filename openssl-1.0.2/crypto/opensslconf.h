@@ -106,8 +106,8 @@ extern "C" {
 
 #if !(defined(VMS) || defined(__VMS)) /* VMS uses logical names instead */
 #if defined(HEADER_CRYPTLIB_H) && !defined(OPENSSLDIR)
-#define ENGINESDIR "/home/lucca/Tenable/Routers/Phicomm/Tools/chosen_plaintext/opt/lib/engines"
-#define OPENSSLDIR "/home/lucca/Tenable/Routers/Phicomm/Tools/chosen_plaintext/opt/ssl"
+#define ENGINESDIR "/home/lucca/Tenable/Routers/Phicomm/Tools/backdoor-lockpick/opt/lib/engines"
+#define OPENSSLDIR "/home/lucca/Tenable/Routers/Phicomm/Tools/backdoor-lockpick/opt/ssl"
 #endif
 #endif
 

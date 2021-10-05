@@ -1,7 +1,7 @@
 SSLeay 0.6.6 06-Dec-1996
 built on Fri Dec  6 10:05:20 GMT 1996
 options:bn(64,32) md2(char) rc4(idx,int) des(idx,risc,16,long) idea(int)
-C flags:gcc -DL_ENDIAN -DTERMIO -O3 -fomit-frame-pointer -m486 -Wall -Wuninitialized
+C flags:gcc -DL_ENDIAN -DTERMIOS -O3 -fomit-frame-pointer -m486 -Wall -Wuninitialized
 The 'numbers' are in 1000s of bytes per second processed.
 type           8 bytes     64 bytes    256 bytes   1024 bytes   8192 bytes
 md2             36.77k      102.48k      138.00k      151.57k      155.78k

