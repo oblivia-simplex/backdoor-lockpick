@@ -1,0 +1,5 @@
+Name: libtelnet (uninstalled)
+Description: TELNET protocol handling library (uninstalled)
+Version: 0.23
+Libs: -L/home/lucca/Tenable/Routers/Phicomm/Tools/backdoor-lockpick/libtelnet-0.23/.libs -ltelnet 
+Cflags: -I/home/lucca/Tenable/Routers/Phicomm/Tools/backdoor-lockpick/libtelnet-0.23
