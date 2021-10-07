@@ -662,7 +662,7 @@ int main(int argc, char **argv) {
 #define QUALITY_CONTROL(__com_res) { if ((__com_res) == -1) { \
   printf("[x] What we have here is a failure to communicate. Restarting.\n"); \
   stage_delay += 1000; \
-  goto STAGE_I; \
+  /* goto STAGE_I; */ \
 } else if (stage_delay > 100) { \
   stage_delay -= 100; \
 } }
