@@ -761,6 +761,7 @@ STAGE_III:
 
     /* Now test to see if the telnet port is open. */
 
+    usleep(stage_delay);
     if (check_tcp_port(ip_addr, TELNET_PORT)) {
 
       gettimeofday(&timecheck, NULL);
