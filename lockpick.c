@@ -137,9 +137,9 @@ int communicate(char *ip_addr,
   int sockfd;
   size_t n;
   unsigned int len;
-  struct timeval tv;
-  tv.tv_sec =  recv_timeout / 1000000;
-  tv.tv_usec = recv_timeout % 1000000;
+  //struct timeval tv;
+  //tv.tv_sec =  recv_timeout / 1000000;
+  //tv.tv_usec = recv_timeout % 1000000;
 
   n = 0;
 
@@ -702,6 +702,9 @@ int main(int argc, char **argv) {
 
 
   do {
+    
+    goto STAGE_I;
+
 STAGE_I:
     on_try += 1;
 
@@ -748,7 +751,7 @@ STAGE_I:
           rsa = init_rsa((char *) device_info->public_n, device_info->public_e);
         }
       } else {
-        /* not strictly necessary, but I like to make sure everything's in order */
+        // not strictly necessary, but I like to make sure everything's in order
         if (0 != memcmp(device_info->hash, buffer, 16)) {
           printf("[x] Discrepancy in device identifying hash. Expected:\n");
           hexdump(device_info->hash, 16);
@@ -762,6 +765,7 @@ STAGE_I:
     } else {
       printf("[!] Not checking hash (CHAOS MODE).\n");
     }
+    goto STAGE_II;
 
 STAGE_II:
     usleep(stage_delay);
@@ -786,6 +790,7 @@ STAGE_II:
         no_secret_mode ? 0 : 0x20,
         stage_delay);
     QUALITY_CONTROL(com_res);
+    goto STAGE_III;
 
 STAGE_III:
     usleep(stage_delay);
@@ -815,6 +820,8 @@ STAGE_III:
         0,
         stage_delay);
     QUALITY_CONTROL(com_res);
+
+
     usleep(stage_delay);
 
   } while (tries - on_try > 0);
