@@ -1,13 +1,3 @@
-# README
+# A Backdoor Lockpick
 
-
-## Expected behaviour of the encrypted backdoor
-
-![Expected behaviour of encrypted backdoor](img/Phicomms_Encrypted_Backdoor_on_UDP_Port_21210.png)
-
-
-## How our lockpicking attack works
-
-![How our lock pick works](img/Picking_the_Lock_on_Phicomms_Encrypted_Backdoor_on_UDP_Port_21210.png)
-
-<!-- Phicomm's Encrypted Backdoor on UDP Port 21210.png Picking the Lock on Phicomm's Encrypted Backdoor on UDP Port 21210.png -->
+See our full writeup [HERE](https://medium.com/tenable-techblog/a-backdoor-lockpick-d847a83f4496).

